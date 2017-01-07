@@ -23,10 +23,9 @@ var ensureGroupPattern = `
 do
 $body$
 begin
-	if not exists (select * from pg_catalog.pg_roles where rolname = '{{.role}}') then
+	if not exists (select 1 from pg_catalog.pg_roles where rolname = '{{.role}}') then
 		create role "{{.role}}";
 	end if;
-	grant all privileges on database "{{.database}}" to "{{.role}}";
 end
 $body$
 `
@@ -190,8 +189,7 @@ func (d *PostgresEngine) JDBCURI(address string, port int64, dbname string, user
 func (d *PostgresEngine) ensureGroup(dbname string) error {
 	var ensureGroupStatement bytes.Buffer
 	if err := ensureGroupTemplate.Execute(&ensureGroupStatement, map[string]string{
-		"role":     d.groupName,
-		"database": dbname,
+		"role": d.groupName,
 	}); err != nil {
 		return err
 	}
