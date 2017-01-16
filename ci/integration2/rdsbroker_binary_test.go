@@ -1,11 +1,6 @@
 package integration2_test
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
 	"sort"
 	"time"
 
@@ -13,18 +8,10 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
 
-	"github.com/frodenas/brokerapi"
 	uuid "github.com/satori/go.uuid"
 
 	. "github.com/alphagov/paas-rds-broker/ci/helpers"
 )
-
-func BodyBytes(resp *http.Response) []byte {
-	buf := bytes.Buffer{}
-	_, err := buf.ReadFrom(resp.Body)
-	Expect(err).ToNot(HaveOccurred())
-	return buf.Bytes()
-}
 
 var _ = Describe("RDS Broker Daemon", func() {
 	BeforeEach(func() {
@@ -33,29 +20,15 @@ var _ = Describe("RDS Broker Daemon", func() {
 	AfterEach(func() {
 	})
 
-	var doRDSBrokerRequest = func(action string, path string, body io.Reader) *http.Response {
-		client := &http.Client{}
-		req, err := http.NewRequest(action, rdsBrokerUrl+path, body)
-		Expect(err).ToNot(HaveOccurred())
-		resp, err := client.Do(req)
-		Expect(err).ToNot(HaveOccurred())
-
-		return resp
-	}
-
-	It("should check the instance credentials", func() {
-		Eventually(suiteData.session, 5*time.Second).Should(gbytes.Say("credentials check has ended"))
+	FIt("should check the instance credentials", func() {
+		Eventually(rdsBrokerSession, 30*time.Second).Should(gbytes.Say("credentials check has ended"))
 	})
 
-	var _ = Describe("Services", func() {
+	var _ = FDescribe("Services", func() {
 		It("returns the proper CatalogResponse", func() {
 			var err error
 
-			resp := doRDSBrokerRequest("GET", "/v2/catalog", nil)
-			Expect(resp.StatusCode).To(Equal(200))
-
-			catalog := brokerapi.CatalogResponse{}
-			err = json.Unmarshal(BodyBytes(resp), &catalog)
+			catalog, err := brokerAPIClient.GetCatalog()
 			Expect(err).ToNot(HaveOccurred())
 
 			sort.Sort(ByServiceID(catalog.Services))
@@ -80,60 +53,30 @@ var _ = Describe("RDS Broker Daemon", func() {
 		})
 	})
 
-	var _ = Describe("Instance Provision/Update/Deprovision", func() {
+	var _ = FDescribe("Instance Provision/Update/Deprovision", func() {
 		var (
-			provisionDetailsJson []byte
-			serviceID            string
-			acceptsIncomplete    bool
+			serviceID string
+			planID    string
 		)
-
-		var doProvisionRequest = func(serviceID string) *http.Response {
-			path := "/v2/service_instances/" + serviceID
-
-			if acceptsIncomplete {
-				path = path + "?accepts_incomplete=true"
-			}
-
-			resp := doRDSBrokerRequest("PUT", path, bytes.NewBuffer(provisionDetailsJson))
-			Expect(resp.StatusCode).To(Equal(202))
-
-			return resp
-		}
-
-		var doDeprovisionRequest = func(serviceID string) *http.Response {
-			path := "/v2/service_instances/" + serviceID
-
-			if acceptsIncomplete {
-				path = path + "?accepts_incomplete=true"
-			}
-
-			resp := doRDSBrokerRequest("DELETE", path, bytes.NewBuffer(provisionDetailsJson))
-			Expect(resp.StatusCode).To(Equal(202))
-
-			return resp
-		}
 
 		BeforeEach(func() {
 			serviceID = uuid.NewV4().String()
-			provisionDetailsJson = []byte(fmt.Sprintf(`
-				{
-					"service_id": "%s",
-					"plan_id": "Plan-1",
-					"organization_guid": "test-organization-id",
-					"space_guid": "space-id",
-					"parameters": {}
-				}
-			`, serviceID))
-			acceptsIncomplete = true
+			planID = "Plan-1"
 
-			doProvisionRequest(serviceID)
+			brokerAPIClient.AcceptsIncomplete = true
+
+			resp, err := brokerAPIClient.DoProvisionRequest(serviceID, planID)
+			Expect(resp.StatusCode).To(Equal(202))
+
+			Expect(err).ToNot(HaveOccurred())
 			// TODO poll
 		})
 
 		AfterEach(func() {
-			if false {
-				doDeprovisionRequest(serviceID)
-			}
+			brokerAPIClient.AcceptsIncomplete = true
+			resp, err := brokerAPIClient.DoDeprovisionRequest(serviceID, planID)
+			Expect(resp.StatusCode).To(Equal(202))
+			Expect(err).ToNot(HaveOccurred())
 			// pollForRDSDeletionCompletion(dbInstanceName)
 		})
 

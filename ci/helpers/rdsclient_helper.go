@@ -1,23 +1,35 @@
 package helpers
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/rds"
 )
 
 type RDSClient struct {
-	region string
-	rdssvc *rds.RDS
+	region   string
+	dbPrefix string
+	rdssvc   *rds.RDS
 }
 
-func NewRDSClient(region string) (*RDSClient, error) {
+func NewRDSClient(region string, dbPrefix string) (*RDSClient, error) {
 	sess := session.New(&aws.Config{Region: aws.String(region)})
 	rdssvc := rds.New(sess)
 	return &RDSClient{
 		region: region,
 		rdssvc: rdssvc,
 	}, nil
+}
+
+func (b *RDSClient) dbInstanceIdentifier(instanceID string) string {
+	return fmt.Sprintf("%s-%s", strings.Replace(b.dbPrefix, "_", "-", -1), strings.Replace(instanceID, "_", "-", -1))
+}
+
+func (b *RDSClient) dbInstanceIdentifierToServiceInstanceID(serviceInstanceID string) string {
+	return strings.TrimPrefix(serviceInstanceID, strings.Replace(b.dbPrefix, "_", "-", -1)+"-")
 }
 
 func (r *RDSClient) Ping() (bool, error) {
@@ -44,7 +56,7 @@ func (r *RDSClient) GetDBFinalSnapshots(ID string) (*rds.DescribeDBSnapshotsOutp
 	return resp, nil
 }
 
-func (r *RDSClient) deleteDBFinalSnapshot(ID string) (*rds.DeleteDBSnapshotOutput, error) {
+func (r *RDSClient) DeleteDBFinalSnapshot(ID string) (*rds.DeleteDBSnapshotOutput, error) {
 	params := &rds.DeleteDBSnapshotInput{
 		DBSnapshotIdentifier: aws.String(ID + "-final-snapshot"),
 	}

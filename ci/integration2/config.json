@@ -5,12 +5,12 @@
   "state_encryption_key": "key",
   "rds_config": {
     "region": "eu-west-1",
-    "db_prefix": "cf",
+    "db_prefix": "rdsbroker-test",
     "allow_user_provision_parameters": true,
     "allow_user_update_parameters": true,
     "allow_user_bind_parameters": true,
     "master_password_seed": "something-secret",
-    "broker_name": "mybroker",
+    "broker_name": "rdsbroker-integration-test",
     "catalog" : {
       "services" : [
          {
@@ -23,7 +23,7 @@
                {
                   "rds_properties" : {
                      "engine" : "postgres",
-                     "db_instance_class" : "db.m1.test",
+                     "db_instance_class" : "db.t2.micro",
                      "allocated_storage" : 10,
                      "skip_final_snapshot" : true,
                      "engine_version" : "9.5.4"
@@ -44,7 +44,7 @@
                      "skip_final_snapshot" : true,
                      "allocated_storage" : 20,
                      "engine" : "postgres",
-                     "db_instance_class" : "db.m2.test"
+                     "db_instance_class" : "db.t2.small"
                   },
                   "free" : false,
                   "id" : "Plan-2",
@@ -63,7 +63,7 @@
                   "rds_properties" : {
                      "allocated_storage" : 30,
                      "engine" : "postgres",
-                     "db_instance_class" : "db.m3.test",
+                     "db_instance_class" : "db.t2.small",
                      "engine_version" : "9.5.4"
                   },
                   "free" : false,

@@ -1,7 +1,6 @@
 package integration2_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,17 +21,17 @@ import (
 	. "github.com/alphagov/paas-rds-broker/ci/helpers"
 )
 
-type suiteDataStruct struct {
-	rdsBrokerPath string
-	port          int
-	session       *gexec.Session
-}
+var (
+	rdsBrokerPath    string
+	rdsBrokerPort    int
+	rdsBrokerUrl     string
+	rdsBrokerSession *gexec.Session
 
-var suiteData suiteDataStruct
-var rdsBrokerUrl string
-var rdsClient *RDSClient
-var config *main.Config
+	brokerAPIClient *BrokerAPIClient
 
+	rdsClient *RDSClient
+	config    *main.Config
+)
 var _ = SynchronizedBeforeSuite(func() []byte {
 	var err error
 
@@ -44,43 +43,29 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	cp := filepath.Join(gpDir, "paas-rds-broker")
 
 	// start the broker in a random port
-	port := freeport.GetPort()
-	command := exec.Command(cp, fmt.Sprintf("-port=%d", port), "-config=./config.json")
-	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+	rdsBrokerPort = freeport.GetPort()
+	command := exec.Command(cp, fmt.Sprintf("-port=%d", rdsBrokerPort), "-config=./config.json")
+	rdsBrokerSession, err = gexec.Start(command, GinkgoWriter, GinkgoWriter)
 	Expect(err).ShouldNot(HaveOccurred())
 
 	// Wait for it to be listening
-	Eventually(session, 5*time.Second).Should(gbytes.Say(fmt.Sprintf("RDS Service Broker started on port %d", port)))
+	Eventually(rdsBrokerSession, 5*time.Second).Should(gbytes.Say(fmt.Sprintf("RDS Service Broker started on port %d", rdsBrokerPort)))
 
-	// Pass the data to the workers
-	data, err := json.Marshal(suiteDataStruct{
-		rdsBrokerPath: cp,
-		port:          port,
-		session:       session,
-	})
-	Expect(err).ShouldNot(HaveOccurred())
-
-	return data
+	return nil
 
 }, func(data []byte) {
 	var err error
-
-	fmt.Fprintf(os.Stderr, "data: %v", string(data))
-
-	err = json.Unmarshal(data, &suiteData)
-	Expect(err).ShouldNot(HaveOccurred())
-
-	fmt.Fprintf(os.Stderr, "port: %v", suiteData)
-
-	rdsBrokerUrl = fmt.Sprintf("http://localhost:%d", suiteData.port)
-
+	rdsBrokerUrl = fmt.Sprintf("http://localhost:%d", rdsBrokerPort)
 	config, err = main.LoadConfig("./config.json")
+
+	brokerAPIClient = NewBrokerAPIClient(rdsBrokerUrl, config.Username, config.Password)
+
 	Expect(err).ToNot(HaveOccurred())
 })
 
 var _ = SynchronizedAfterSuite(func() {
 }, func() {
-	suiteData.session.Kill()
+	rdsBrokerSession.Kill()
 })
 
 func TestAcceptance(t *testing.T) {
@@ -88,8 +73,8 @@ func TestAcceptance(t *testing.T) {
 
 	RegisterFailHandler(Fail)
 
-	// FIXME: Remove hardcoded region
-	rdsClient, err = NewRDSClient("eu-west-1")
+	// FIXME: Remove hardcoded region and prefix
+	rdsClient, err = NewRDSClient("eu-west-1", "rdsbroker-test")
 	Expect(err).ShouldNot(HaveOccurred())
 
 	if ok, err := rdsClient.Ping(); ok {
