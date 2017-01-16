@@ -1,8 +1,11 @@
 package integration_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -11,42 +14,31 @@ import (
 	"github.com/pivotal-golang/lager"
 	"github.com/pivotal-golang/lager/lagertest"
 
+	main "github.com/alphagov/paas-rds-broker"
 	rdsfake "github.com/alphagov/paas-rds-broker/awsrds/fakes"
 	"github.com/alphagov/paas-rds-broker/rdsbroker"
 	sqlfake "github.com/alphagov/paas-rds-broker/sqlengine/fakes"
 )
 
-func buildHTTPHandler(serviceBroker *rdsbroker.RDSBroker, logger lager.Logger, user string, pass string) http.Handler {
-	credentials := brokerapi.BrokerCredentials{
-		Username: user,
-		Password: pass,
-	}
+type ByServiceID []brokerapi.Service
 
-	brokerAPI := brokerapi.New(serviceBroker, logger, credentials)
-	mux := http.NewServeMux()
-	mux.Handle("/", brokerAPI)
-	mux.HandleFunc("/healthcheck", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	return mux
-}
+func (a ByServiceID) Len() int           { return len(a) }
+func (a ByServiceID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByServiceID) Less(i, j int) bool { return a[i].ID < a[j].ID }
 
 var _ = Describe("RDS Broker", func() {
+
 	var (
-		rdsProperties1 rdsbroker.RDSProperties
-		rdsProperties2 rdsbroker.RDSProperties
-		rdsProperties3 rdsbroker.RDSProperties
-		plan1          rdsbroker.ServicePlan
-		plan2          rdsbroker.ServicePlan
-		plan3          rdsbroker.ServicePlan
-		service1       rdsbroker.Service
-		service2       rdsbroker.Service
-		service3       rdsbroker.Service
-		catalog        rdsbroker.Catalog
-
-		config rdsbroker.Config
-
-		dbInstance *rdsfake.FakeDBInstance
+		allowUserProvisionParameters bool
+		allowUserUpdateParameters    bool
+		allowUserBindParameters      bool
+		serviceBindable              bool
+		planUpdateable               bool
+		skipFinalSnapshot            bool
+		dbPrefix                     string
+		brokerName                   string
+		config                       *main.Config
+		dbInstance                   *rdsfake.FakeDBInstance
 
 		sqlProvider *sqlfake.FakeProvider
 		sqlEngine   *sqlfake.FakeSQLEngine
@@ -56,25 +48,9 @@ var _ = Describe("RDS Broker", func() {
 
 		rdsBroker *rdsbroker.RDSBroker
 
-		allowUserProvisionParameters bool
-		allowUserUpdateParameters    bool
-		allowUserBindParameters      bool
-		serviceBindable              bool
-		planUpdateable               bool
-		skipFinalSnapshot            bool
-		dbPrefix                     string
-		brokerName                   string
+		rdsBrokerServer http.Handler
 	)
-
-	const (
-		masterPasswordSeed   = "something-secret"
-		instanceID           = "instance-id"
-		bindingID            = "binding-id"
-		dbInstanceIdentifier = "cf-instance-id"
-		dbName               = "cf_instance_id"
-		dbUsername           = "uvMSB820K_t3WvCX"
-		masterUserPassword   = "qOeiJ6AstR_mUQJxn6jyew=="
-	)
+	const ()
 
 	BeforeEach(func() {
 		allowUserProvisionParameters = true
@@ -87,7 +63,6 @@ var _ = Describe("RDS Broker", func() {
 		brokerName = "mybroker"
 
 		dbInstance = &rdsfake.FakeDBInstance{}
-
 		sqlProvider = &sqlfake.FakeProvider{}
 		sqlEngine = &sqlfake.FakeSQLEngine{}
 		sqlProvider.GetSQLEngineSQLEngine = sqlEngine
@@ -95,160 +70,99 @@ var _ = Describe("RDS Broker", func() {
 	})
 
 	JustBeforeEach(func() {
-		rdsProperties1 = rdsbroker.RDSProperties{
-			DBInstanceClass:   "db.m1.test",
-			Engine:            "test-engine-1",
-			EngineVersion:     "1.2.3",
-			AllocatedStorage:  100,
-			SkipFinalSnapshot: skipFinalSnapshot,
-		}
+		var err error
 
-		rdsProperties2 = rdsbroker.RDSProperties{
-			DBInstanceClass:   "db.m2.test",
-			Engine:            "test-engine-2",
-			EngineVersion:     "4.5.6",
-			AllocatedStorage:  200,
-			SkipFinalSnapshot: skipFinalSnapshot,
-		}
-
-		rdsProperties3 = rdsbroker.RDSProperties{
-			DBInstanceClass:   "db.m3.test",
-			Engine:            "test-engine-3",
-			EngineVersion:     "4.5.6",
-			AllocatedStorage:  300,
-			SkipFinalSnapshot: false,
-		}
-
-		plan1 = rdsbroker.ServicePlan{
-			ID:            "Plan-1",
-			Name:          "Plan 1",
-			Description:   "This is the Plan 1",
-			RDSProperties: rdsProperties1,
-		}
-		plan2 = rdsbroker.ServicePlan{
-			ID:            "Plan-2",
-			Name:          "Plan 2",
-			Description:   "This is the Plan 2",
-			RDSProperties: rdsProperties2,
-		}
-		plan3 = rdsbroker.ServicePlan{
-			ID:            "Plan-3",
-			Name:          "Plan 3",
-			Description:   "This is the Plan 3",
-			RDSProperties: rdsProperties3,
-		}
-
-		service1 = rdsbroker.Service{
-			ID:             "Service-1",
-			Name:           "Service 1",
-			Description:    "This is the Service 1",
-			Bindable:       serviceBindable,
-			PlanUpdateable: planUpdateable,
-			Plans:          []rdsbroker.ServicePlan{plan1},
-		}
-		service2 = rdsbroker.Service{
-			ID:             "Service-2",
-			Name:           "Service 2",
-			Description:    "This is the Service 2",
-			Bindable:       serviceBindable,
-			PlanUpdateable: planUpdateable,
-			Plans:          []rdsbroker.ServicePlan{plan2},
-		}
-		service3 = rdsbroker.Service{
-			ID:             "Service-3",
-			Name:           "Service 3",
-			Description:    "This is the Service 3",
-			Bindable:       serviceBindable,
-			PlanUpdateable: planUpdateable,
-			Plans:          []rdsbroker.ServicePlan{plan3},
-		}
-
-		catalog = rdsbroker.Catalog{
-			Services: []rdsbroker.Service{service1, service2, service3},
-		}
-
-		config = rdsbroker.Config{
-			Region:                       "rds-region",
-			DBPrefix:                     dbPrefix,
-			BrokerName:                   brokerName,
-			MasterPasswordSeed:           masterPasswordSeed,
-			AllowUserProvisionParameters: allowUserProvisionParameters,
-			AllowUserUpdateParameters:    allowUserUpdateParameters,
-			AllowUserBindParameters:      allowUserBindParameters,
-			Catalog:                      catalog,
-		}
+		config, err = main.LoadConfig("./config.json")
+		Expect(err).ToNot(HaveOccurred())
 
 		logger = lager.NewLogger("rdsbroker_test")
 		testSink = lagertest.NewTestSink()
 		logger.RegisterSink(testSink)
 
-		rdsBroker = rdsbroker.New(config, dbInstance, sqlProvider, logger)
-		// rdsBrokerServer := httptest.NewServer(rdsBroker)
+		rdsBroker = rdsbroker.New(*config.RDSConfig, dbInstance, sqlProvider, logger)
+		rdsBrokerServer = main.BuildHTTPHandler(rdsBroker, logger, config)
 	})
 
 	var _ = Describe("Services", func() {
+		It("returns the proper CatalogResponse", func() {
+			var err error
+
+			recorder := httptest.NewRecorder()
+
+			req := httptest.NewRequest("GET", "http://example.com/v2/catalog", nil)
+			req.SetBasicAuth(config.Username, config.Password)
+
+			rdsBrokerServer.ServeHTTP(recorder, req)
+
+			catalog := brokerapi.CatalogResponse{}
+			err = json.Unmarshal(recorder.Body.Bytes(), &catalog)
+			Expect(err).ToNot(HaveOccurred())
+
+			sort.Sort(ByServiceID(catalog.Services))
+
+			Expect(catalog.Services).To(HaveLen(3))
+			service1 := catalog.Services[0]
+			service2 := catalog.Services[1]
+			service3 := catalog.Services[2]
+			Expect(service1.ID).To(Equal("Service-1"))
+			Expect(service2.ID).To(Equal("Service-2"))
+			Expect(service3.ID).To(Equal("Service-3"))
+
+			Expect(service1.ID).To(Equal("Service-1"))
+			Expect(service1.Name).To(Equal("Service 1"))
+			Expect(service1.Description).To(Equal("This is the Service 1"))
+			Expect(service1.Bindable).To(BeTrue())
+			Expect(service1.PlanUpdateable).To(BeTrue())
+			Expect(service1.Plans).To(HaveLen(1))
+			Expect(service1.Plans[0].ID).To(Equal("Plan-1"))
+			Expect(service1.Plans[0].Name).To(Equal("Plan 1"))
+			Expect(service1.Plans[0].Description).To(Equal("This is the Plan 1"))
+		})
+
+	})
+
+	var _ = Describe("Provision", func() {
 		var (
-			properCatalogResponse brokerapi.CatalogResponse
+			provisionDetailsJson []byte
+			serviceID            string
+			acceptsIncomplete    bool
 		)
 
 		BeforeEach(func() {
-			properCatalogResponse = brokerapi.CatalogResponse{
-				Services: []brokerapi.Service{
-					brokerapi.Service{
-						ID:             "Service-1",
-						Name:           "Service 1",
-						Description:    "This is the Service 1",
-						Bindable:       serviceBindable,
-						PlanUpdateable: planUpdateable,
-						Plans: []brokerapi.ServicePlan{
-							brokerapi.ServicePlan{
-								ID:          "Plan-1",
-								Name:        "Plan 1",
-								Description: "This is the Plan 1",
-							},
-						},
-					},
-					brokerapi.Service{
-						ID:             "Service-2",
-						Name:           "Service 2",
-						Description:    "This is the Service 2",
-						Bindable:       serviceBindable,
-						PlanUpdateable: planUpdateable,
-						Plans: []brokerapi.ServicePlan{
-							brokerapi.ServicePlan{
-								ID:          "Plan-2",
-								Name:        "Plan 2",
-								Description: "This is the Plan 2",
-							},
-						},
-					},
-					brokerapi.Service{
-						ID:             "Service-3",
-						Name:           "Service 3",
-						Description:    "This is the Service 3",
-						Bindable:       serviceBindable,
-						PlanUpdateable: planUpdateable,
-						Plans: []brokerapi.ServicePlan{
-							brokerapi.ServicePlan{
-								ID:          "Plan-3",
-								Name:        "Plan 3",
-								Description: "This is the Plan 3",
-							},
-						},
-					},
-				},
+			provisionDetailsJson = []byte(`
+				{
+					"service_id": "Service-1",
+					"plan_id": "Plan-1",
+					"organization_guid": "organization-id",
+					"space_guid": "space-id",
+					"parameters": {}
+				}
+			`)
+			serviceID = "Service-1"
+			acceptsIncomplete = true
+		})
+
+		var doProvisionRequest = func() *httptest.ResponseRecorder {
+			recorder := httptest.NewRecorder()
+
+			path := "/v2/service_instances/" + serviceID
+
+			if acceptsIncomplete {
+				path = path + "?accepts_incomplete=true"
 			}
+
+			req := httptest.NewRequest("PUT", path, bytes.NewBuffer(provisionDetailsJson))
+			req.SetBasicAuth(config.Username, config.Password)
+
+			rdsBrokerServer.ServeHTTP(recorder, req)
+
+			return recorder
+		}
+
+		It("returns 202 Accepted, Service instance provisioning is in progress", func() {
+			recorder := doProvisionRequest()
+			Expect(recorder.Code).To(Equal(202))
 		})
-
-		It("returns the proper CatalogResponse", func() {
-			req := httptest.NewRequest("GET", "http://example.com/foo", nil)
-			w := httptest.NewRecorder()
-			server := buildHTTPHandler(rdsBroker, logger, "aa", "bb")
-			server.ServeHTTP(w, req)
-
-			Expect(w.Body.String()).To(Equal("ejee"))
-		})
-
 	})
 
 })
