@@ -1,8 +1,6 @@
 package helpers
 
 import (
-	"fmt"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/rds"
@@ -14,12 +12,7 @@ type RDSClient struct {
 }
 
 func NewRDSClient(region string) (*RDSClient, error) {
-	sess, err := session.NewSession(&aws.Config{Region: aws.String(region)})
-	if err != nil {
-		fmt.Println("Failed to create AWS session,", err)
-		return nil, err
-	}
-
+	sess := session.New(&aws.Config{Region: aws.String(region)})
 	rdssvc := rds.New(sess)
 	return &RDSClient{
 		region: region,

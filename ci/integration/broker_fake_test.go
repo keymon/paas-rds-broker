@@ -14,17 +14,13 @@ import (
 	"github.com/pivotal-golang/lager"
 	"github.com/pivotal-golang/lager/lagertest"
 
+	. "github.com/alphagov/paas-rds-broker/ci/helpers"
+
 	main "github.com/alphagov/paas-rds-broker"
 	rdsfake "github.com/alphagov/paas-rds-broker/awsrds/fakes"
 	"github.com/alphagov/paas-rds-broker/rdsbroker"
 	sqlfake "github.com/alphagov/paas-rds-broker/sqlengine/fakes"
 )
-
-type ByServiceID []brokerapi.Service
-
-func (a ByServiceID) Len() int           { return len(a) }
-func (a ByServiceID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByServiceID) Less(i, j int) bool { return a[i].ID < a[j].ID }
 
 var _ = Describe("RDS Broker", func() {
 
@@ -93,6 +89,7 @@ var _ = Describe("RDS Broker", func() {
 			req.SetBasicAuth(config.Username, config.Password)
 
 			rdsBrokerServer.ServeHTTP(recorder, req)
+			Expect(recorder.Code).To(Equal(200))
 
 			catalog := brokerapi.CatalogResponse{}
 			err = json.Unmarshal(recorder.Body.Bytes(), &catalog)

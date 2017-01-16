@@ -4,7 +4,7 @@
   "password": "password",
   "state_encryption_key": "key",
   "rds_config": {
-    "region": "something-secret",
+    "region": "eu-west-1",
     "db_prefix": "cf",
     "allow_user_provision_parameters": true,
     "allow_user_update_parameters": true,
