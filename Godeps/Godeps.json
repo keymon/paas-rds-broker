@@ -1,10 +1,7 @@
 {
 	"ImportPath": "github.com/alphagov/paas-rds-broker",
 	"GoVersion": "go1.5.1",
-	"GodepVersion": "v73",
-	"Packages": [
-		"./..."
-	],
+	"GodepVersion": "v74",
 	"Deps": [
 		{
 			"ImportPath": "github.com/aws/aws-sdk-go/aws",
@@ -247,11 +244,6 @@
 			"Rev": "766f4042b942146e90594d145c5071fa92c0aa9a"
 		},
 		{
-			"ImportPath": "github.com/onsi/gomega/gbytes",
-			"Comment": "v1.0-48-g766f404",
-			"Rev": "766f4042b942146e90594d145c5071fa92c0aa9a"
-		},
-		{
 			"ImportPath": "github.com/onsi/gomega/internal/assertion",
 			"Comment": "v1.0-48-g766f404",
 			"Rev": "766f4042b942146e90594d145c5071fa92c0aa9a"
@@ -298,10 +290,6 @@
 		},
 		{
 			"ImportPath": "github.com/pivotal-golang/lager",
-			"Rev": "be52ae622d25728f17aac7330e4565201c19155c"
-		},
-		{
-			"ImportPath": "github.com/pivotal-golang/lager/lagertest",
 			"Rev": "be52ae622d25728f17aac7330e4565201c19155c"
 		}
 	]
