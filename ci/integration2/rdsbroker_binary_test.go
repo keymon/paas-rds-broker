@@ -70,7 +70,7 @@ var _ = Describe("RDS Broker Daemon", func() {
 
 			brokerAPIClient.AcceptsIncomplete = true
 
-			code, operation, err := brokerAPIClient.DeprovisionInstance(serviceID, planID)
+			code, operation, err := brokerAPIClient.ProvisionInstance(serviceID, planID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(code).To(Equal(202))
 			state := pollForOperationCompletion(serviceID, planID, operation)

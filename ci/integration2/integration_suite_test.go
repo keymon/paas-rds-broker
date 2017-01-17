@@ -16,7 +16,7 @@ import (
 
 	"github.com/phayes/freeport"
 
-	main "github.com/alphagov/paas-rds-broker"
+	rdsbroker "github.com/alphagov/paas-rds-broker/aaa"
 
 	. "github.com/alphagov/paas-rds-broker/ci/helpers"
 )
@@ -30,7 +30,7 @@ var (
 	brokerAPIClient *BrokerAPIClient
 
 	rdsClient *RDSClient
-	config    *main.Config
+	config    *rdsbroker.Config
 )
 var _ = SynchronizedBeforeSuite(func() []byte {
 	var err error
@@ -56,7 +56,7 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 }, func(data []byte) {
 	var err error
 	rdsBrokerUrl = fmt.Sprintf("http://localhost:%d", rdsBrokerPort)
-	config, err = main.LoadConfig("./config.json")
+	config, err = rdsbroker.LoadConfig("./config.json")
 
 	brokerAPIClient = NewBrokerAPIClient(rdsBrokerUrl, config.Username, config.Password)
 
