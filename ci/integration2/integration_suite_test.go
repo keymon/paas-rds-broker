@@ -2,10 +2,7 @@ package integration2_test
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,8 +12,6 @@ import (
 	"github.com/onsi/gomega/gexec"
 
 	"github.com/phayes/freeport"
-
-	rdsbroker "github.com/alphagov/paas-rds-broker/aaa"
 
 	. "github.com/alphagov/paas-rds-broker/ci/helpers"
 )
@@ -30,62 +25,38 @@ var (
 	brokerAPIClient *BrokerAPIClient
 
 	rdsClient *RDSClient
-	config    *rdsbroker.Config
 )
-var _ = SynchronizedBeforeSuite(func() []byte {
-	var err error
 
-	// Compile the broker
-	gp, err := gexec.Build("github.com/alphagov/paas-rds-broker")
-	Expect(err).ShouldNot(HaveOccurred())
+func TestSuite(t *testing.T) {
+	BeforeSuite(func() {
+		var err error
 
-	gpDir := filepath.Dir(gp)
-	cp := filepath.Join(gpDir, "paas-rds-broker")
+		// Compile the broker
+		cp, err := gexec.Build("github.com/alphagov/paas-rds-broker")
+		Expect(err).ShouldNot(HaveOccurred())
 
-	// start the broker in a random port
-	rdsBrokerPort = freeport.GetPort()
-	command := exec.Command(cp, fmt.Sprintf("-port=%d", rdsBrokerPort), "-config=./config.json")
-	rdsBrokerSession, err = gexec.Start(command, GinkgoWriter, GinkgoWriter)
-	Expect(err).ShouldNot(HaveOccurred())
+		// start the broker in a random port
+		rdsBrokerPort = freeport.GetPort()
+		command := exec.Command(cp, fmt.Sprintf("-port=%d", rdsBrokerPort), "-config=./config.json")
+		rdsBrokerSession, err = gexec.Start(command, GinkgoWriter, GinkgoWriter)
+		Expect(err).ShouldNot(HaveOccurred())
 
-	// Wait for it to be listening
-	Eventually(rdsBrokerSession, 5*time.Second).Should(gbytes.Say(fmt.Sprintf("RDS Service Broker started on port %d", rdsBrokerPort)))
+		// Wait for it to be listening
+		Eventually(rdsBrokerSession, 10*time.Second).Should(gbytes.Say(fmt.Sprintf("RDS Service Broker started on port %d", rdsBrokerPort)))
 
-	return nil
+		rdsBrokerUrl = fmt.Sprintf("http://localhost:%d", rdsBrokerPort)
 
-}, func(data []byte) {
-	var err error
-	rdsBrokerUrl = fmt.Sprintf("http://localhost:%d", rdsBrokerPort)
-	config, err = rdsbroker.LoadConfig("./config.json")
+		// FIXME: Remove hardcoded region and prefix and user credentials
+		brokerAPIClient = NewBrokerAPIClient(rdsBrokerUrl, "username", "password")
+		rdsClient, err = NewRDSClient("eu-west-1", "rdsbroker-test")
 
-	brokerAPIClient = NewBrokerAPIClient(rdsBrokerUrl, config.Username, config.Password)
+		Expect(err).ToNot(HaveOccurred())
+	})
 
-	Expect(err).ToNot(HaveOccurred())
-})
-
-var _ = SynchronizedAfterSuite(func() {
-}, func() {
-	rdsBrokerSession.Kill()
-})
-
-func TestAcceptance(t *testing.T) {
-	var err error
+	AfterSuite(func() {
+		rdsBrokerSession.Kill()
+	})
 
 	RegisterFailHandler(Fail)
-
-	// FIXME: Remove hardcoded region and prefix
-	rdsClient, err = NewRDSClient("eu-west-1", "rdsbroker-test")
-	Expect(err).ShouldNot(HaveOccurred())
-
-	if ok, err := rdsClient.Ping(); ok {
-		RunSpecs(t, "RDS Broker Integration Suite")
-	} else {
-		errorName := strings.SplitN(err.Error(), ":", 2)[0]
-		if errorName == "NoCredentialProviders" {
-			fmt.Fprintf(os.Stderr, "WARNING: Skipping RDS Broker integration, as no credentials were provided:\n  %v", err)
-		} else {
-			fmt.Fprintf(os.Stderr, "ERROR: Cannot run RDS Broker integration, no credentials were provided:\n  %v", err)
-			os.Exit(1)
-		}
-	}
+	RunSpecs(t, "RDS Broker Integration Suite")
 }

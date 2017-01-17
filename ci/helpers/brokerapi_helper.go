@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/frodenas/brokerapi"
@@ -101,8 +102,8 @@ func (b *BrokerAPIClient) GetCatalog() (brokerapi.CatalogResponse, error) {
 	return catalog, nil
 }
 
-func (b *BrokerAPIClient) DoProvisionRequest(serviceID string, planID string) (*http.Response, error) {
-	path := "/v2/service_instances/" + serviceID
+func (b *BrokerAPIClient) DoProvisionRequest(instanceID, serviceID, planID string) (*http.Response, error) {
+	path := "/v2/service_instances/" + instanceID
 
 	provisionDetailsJson := []byte(fmt.Sprintf(`
 		{
@@ -122,8 +123,8 @@ func (b *BrokerAPIClient) DoProvisionRequest(serviceID string, planID string) (*
 	)
 }
 
-func (b *BrokerAPIClient) DoDeprovisionRequest(serviceID string, planID string) (*http.Response, error) {
-	path := fmt.Sprintf("/v2/service_instances/%s", serviceID)
+func (b *BrokerAPIClient) DoDeprovisionRequest(instanceID, serviceID, planID string) (*http.Response, error) {
+	path := fmt.Sprintf("/v2/service_instances/%s", instanceID)
 
 	return b.doRequest(
 		"DELETE",
@@ -135,8 +136,8 @@ func (b *BrokerAPIClient) DoDeprovisionRequest(serviceID string, planID string) 
 	)
 }
 
-func (b *BrokerAPIClient) ProvisionInstance(serviceID string, planID string) (responseCode int, operation string, err error) {
-	resp, err := b.DoProvisionRequest(serviceID, planID)
+func (b *BrokerAPIClient) ProvisionInstance(instanceID, serviceID, planID string) (responseCode int, operation string, err error) {
+	resp, err := b.DoProvisionRequest(instanceID, serviceID, planID)
 	if err != nil {
 		return resp.StatusCode, "", err
 	}
@@ -159,8 +160,8 @@ func (b *BrokerAPIClient) ProvisionInstance(serviceID string, planID string) (re
 	return resp.StatusCode, "", nil
 }
 
-func (b *BrokerAPIClient) DeprovisionInstance(serviceID string, planID string) (responseCode int, operation string, err error) {
-	resp, err := b.DoDeprovisionRequest(serviceID, planID)
+func (b *BrokerAPIClient) DeprovisionInstance(instanceID, serviceID, planID string) (responseCode int, operation string, err error) {
+	resp, err := b.DoDeprovisionRequest(instanceID, serviceID, planID)
 	if err != nil {
 		return resp.StatusCode, "", err
 	}
@@ -183,11 +184,11 @@ func (b *BrokerAPIClient) DeprovisionInstance(serviceID string, planID string) (
 	return resp.StatusCode, "", nil
 }
 
-func (b *BrokerAPIClient) DoLastOperationRequest(serviceID string, planID string, operation string) (*http.Response, error) {
-	path := fmt.Sprintf("/v2/service_instances/%s/last_operation", serviceID)
+func (b *BrokerAPIClient) DoLastOperationRequest(instanceID, serviceID, planID, operation string) (*http.Response, error) {
+	path := fmt.Sprintf("/v2/service_instances/%s/last_operation", instanceID)
 
 	return b.doRequest(
-		"DELETE",
+		"GET",
 		path,
 		nil,
 		uriParam{key: "service_id", value: serviceID},
@@ -198,26 +199,53 @@ func (b *BrokerAPIClient) DoLastOperationRequest(serviceID string, planID string
 	return b.doRequest("GET", path, nil)
 }
 
-func (b *BrokerAPIClient) GetLastOperationState(serviceID string, planID string, operation string) (string, error) {
-	resp, err := b.DoLastOperationRequest(serviceID, planID, operation)
+func (b *BrokerAPIClient) GetLastOperationState(instanceID, serviceID, planID, operation string) (string, error) {
+	resp, err := b.DoLastOperationRequest(instanceID, serviceID, planID, operation)
 	if err != nil {
 		return "", err
 	}
-	if resp.StatusCode == 401 {
-		return "gone", nil
-	}
-	lastOperationResponse := LastOperationResponse{}
-
 	body, err := BodyBytes(resp)
 	if err != nil {
 		return "", err
 	}
+	fmt.Fprintf(os.Stdout, "%v", string(body))
+	switch resp.StatusCode {
+	case 410:
+		return "gone", nil
+	case 200:
+		lastOperationResponse := LastOperationResponse{}
 
-	err = json.Unmarshal(body, &lastOperationResponse)
-	if err != nil {
-		return "", err
+		err = json.Unmarshal(body, &lastOperationResponse)
+		if err != nil {
+			return "", err
+		}
+		return lastOperationResponse.State, nil
+	default:
+		return "", fmt.Errorf("Unknown code %d: %s", resp.StatusCode, string(body))
 	}
 
-	return lastOperationResponse.State, nil
+	return "", nil
+}
 
+func (b *BrokerAPIClient) DoBindRequest(instanceID, serviceID, planID, appGUID, bindingID string) (*http.Response, error) {
+	path := fmt.Sprintf("/v2/service_instances/%s/service_bindings/%s", instanceID, bindingID)
+
+	bindingDetailsJson := []byte(fmt.Sprintf(`
+		{
+			"service_id": "%s",
+			"plan_id": "%s",
+			"bind_resource": {
+				"app_guid": "%s"
+			},
+			"parameters": {}
+		}`,
+		serviceID,
+		planID,
+	))
+
+	return b.doRequest(
+		"PUT",
+		path,
+		bytes.NewBuffer(bindingDetailsJson),
+	)
 }

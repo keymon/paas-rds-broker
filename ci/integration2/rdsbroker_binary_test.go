@@ -25,11 +25,11 @@ var _ = Describe("RDS Broker Daemon", func() {
 	AfterEach(func() {
 	})
 
-	FIt("should check the instance credentials", func() {
+	It("should check the instance credentials", func() {
 		Eventually(rdsBrokerSession, 30*time.Second).Should(gbytes.Say("credentials check has ended"))
 	})
 
-	var _ = FDescribe("Services", func() {
+	var _ = Describe("Services", func() {
 		It("returns the proper CatalogResponse", func() {
 			var err error
 
@@ -58,42 +58,49 @@ var _ = Describe("RDS Broker Daemon", func() {
 		})
 	})
 
-	var _ = FDescribe("Instance Provision/Update/Deprovision", func() {
+	var _ = Describe("Instance Provision/Update/Deprovision", func() {
 		var (
-			serviceID string
-			planID    string
+			instanceID string
+			serviceID  string
+			planID     string
+			appGUID    string
+			bindingID  string
 		)
 
 		BeforeEach(func() {
-			serviceID = uuid.NewV4().String()
+			instanceID = uuid.NewV4().String()
+			serviceID = "Service-1"
 			planID = "Plan-1"
+			appGUID = uuid.NewV4().String()
+			bindingID = uuid.NewV4().String()
 
 			brokerAPIClient.AcceptsIncomplete = true
 
-			code, operation, err := brokerAPIClient.ProvisionInstance(serviceID, planID)
+			code, operation, err := brokerAPIClient.ProvisionInstance(instanceID, serviceID, planID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(code).To(Equal(202))
-			state := pollForOperationCompletion(serviceID, planID, operation)
+			state := pollForOperationCompletion(instanceID, serviceID, planID, operation)
 			Expect(state).To(Equal("succeeded"))
 		})
 
 		AfterEach(func() {
 			brokerAPIClient.AcceptsIncomplete = true
-			code, operation, err := brokerAPIClient.DeprovisionInstance(serviceID, planID)
+			code, operation, err := brokerAPIClient.DeprovisionInstance(instanceID, serviceID, planID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(code).To(Equal(202))
-			state := pollForOperationCompletion(serviceID, planID, operation)
+			state := pollForOperationCompletion(instanceID, serviceID, planID, operation)
 			Expect(state).To(Equal("gone"))
 		})
 
-		It("aaa", func() {
-			Expect(1).To(Equal(2))
+		It("can bind to the created service", func() {
+			resp, err := brokerAPIClient.DoBindRequest(instanceID, serviceID, planID, appGUID, bindingID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(201))
 		})
-
 	})
 })
 
-func pollForOperationCompletion(serviceID string, planID string, operation string) string {
+func pollForOperationCompletion(instanceID, serviceID, planID, operation string) string {
 	var state string
 	var err error
 
@@ -101,7 +108,7 @@ func pollForOperationCompletion(serviceID string, planID string, operation strin
 	Eventually(
 		func() string {
 			fmt.Fprint(GinkgoWriter, ".")
-			state, err = brokerAPIClient.GetLastOperationState(serviceID, planID, operation)
+			state, err = brokerAPIClient.GetLastOperationState(instanceID, serviceID, planID, operation)
 			Expect(err).ToNot(HaveOccurred())
 			return state
 		},
@@ -115,6 +122,6 @@ func pollForOperationCompletion(serviceID string, planID string, operation strin
 		),
 	)
 
-	fmt.Fprint(GinkgoWriter, "done. Final state: %s.\n", state)
+	fmt.Fprintf(GinkgoWriter, "done. Final state: %s.\n", state)
 	return state
 }
