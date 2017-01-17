@@ -1,6 +1,7 @@
 package integration2_test
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -11,6 +12,10 @@ import (
 	uuid "github.com/satori/go.uuid"
 
 	. "github.com/alphagov/paas-rds-broker/ci/helpers"
+)
+
+const (
+	INSTANCE_CREATE_TIMEOUT = 30 * time.Minute
 )
 
 var _ = Describe("RDS Broker Daemon", func() {
@@ -65,19 +70,20 @@ var _ = Describe("RDS Broker Daemon", func() {
 
 			brokerAPIClient.AcceptsIncomplete = true
 
-			resp, err := brokerAPIClient.DoProvisionRequest(serviceID, planID)
-			Expect(resp.StatusCode).To(Equal(202))
-
+			code, operation, err := brokerAPIClient.DeprovisionInstance(serviceID, planID)
 			Expect(err).ToNot(HaveOccurred())
-			// TODO poll
+			Expect(code).To(Equal(202))
+			state := pollForOperationCompletion(serviceID, planID, operation)
+			Expect(state).To(Equal("succeeded"))
 		})
 
 		AfterEach(func() {
 			brokerAPIClient.AcceptsIncomplete = true
-			resp, err := brokerAPIClient.DoDeprovisionRequest(serviceID, planID)
-			Expect(resp.StatusCode).To(Equal(202))
+			code, operation, err := brokerAPIClient.DeprovisionInstance(serviceID, planID)
 			Expect(err).ToNot(HaveOccurred())
-			// pollForRDSDeletionCompletion(dbInstanceName)
+			Expect(code).To(Equal(202))
+			state := pollForOperationCompletion(serviceID, planID, operation)
+			Expect(state).To(Equal("gone"))
 		})
 
 		It("aaa", func() {
@@ -86,3 +92,29 @@ var _ = Describe("RDS Broker Daemon", func() {
 
 	})
 })
+
+func pollForOperationCompletion(serviceID string, planID string, operation string) string {
+	var state string
+	var err error
+
+	fmt.Fprint(GinkgoWriter, "Polling for Instance Operation to complete")
+	Eventually(
+		func() string {
+			fmt.Fprint(GinkgoWriter, ".")
+			state, err = brokerAPIClient.GetLastOperationState(serviceID, planID, operation)
+			Expect(err).ToNot(HaveOccurred())
+			return state
+		},
+		INSTANCE_CREATE_TIMEOUT,
+		15*time.Second,
+	).Should(
+		SatisfyAny(
+			Equal("succeeded"),
+			Equal("failed"),
+			Equal("gone"),
+		),
+	)
+
+	fmt.Fprint(GinkgoWriter, "done. Final state: %s.\n", state)
+	return state
+}
