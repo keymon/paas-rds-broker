@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 
 	"github.com/frodenas/brokerapi"
+	"github.com/onsi/ginkgo"
 )
 
 type ByServiceID []brokerapi.Service
@@ -50,14 +52,29 @@ func NewBrokerAPIClient(Url string, Username string, Password string) *BrokerAPI
 	}
 }
 
-func (b *BrokerAPIClient) doRequest(action string, path string, body io.Reader) (*http.Response, error) {
+func (b *BrokerAPIClient) doRequest(action string, path string, body io.Reader, params ...[]string) (*http.Response, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest(action, b.Url+path, body)
 	if err != nil {
 		return nil, err
 	}
+
 	req.SetBasicAuth(b.Username, b.Password)
 
+	q := req.URL.Query()
+	for _, p := range params {
+		if len(p) > 0 {
+			k := p[0]
+			v := ""
+			if len(p) > 1 {
+				v := p[1]
+			}
+			p.Add(k, v)
+		}
+	}
+	req.URL.RawQuery = q.Encode()
+
+	fmt.Fprintf(ginkgo.GinkgoWriter, "%v\n", req)
 	return client.Do(req)
 }
 
@@ -89,10 +106,6 @@ func (b *BrokerAPIClient) GetCatalog() (brokerapi.CatalogResponse, error) {
 func (b *BrokerAPIClient) DoProvisionRequest(serviceID string, planID string) (*http.Response, error) {
 	path := "/v2/service_instances/" + serviceID
 
-	if b.AcceptsIncomplete {
-		path = path + "?accepts_incomplete=true"
-	}
-
 	provisionDetailsJson := []byte(fmt.Sprintf(`
 		{
 			"service_id": "%s",
@@ -103,27 +116,28 @@ func (b *BrokerAPIClient) DoProvisionRequest(serviceID string, planID string) (*
 		}
 	`, serviceID, planID))
 
-	return b.doRequest("PUT", path, bytes.NewBuffer(provisionDetailsJson))
+	return b.doRequest(
+		"PUT",
+		path,
+		bytes.NewBuffer(provisionDetailsJson),
+		[]string{"accepts_incomplete", string(b.AcceptsIncomplete)},
+	)
 }
 
 func (b *BrokerAPIClient) DoDeprovisionRequest(serviceID string, planID string) (*http.Response, error) {
-	path := "/v2/service_instances/" + serviceID
+	path := fmt.Sprintf("/v2/service_instances/%s", serviceID)
 
-	if b.AcceptsIncomplete {
-		path = path + "?accepts_incomplete=true"
-	}
+	fmt.Fprintf(os.Stderr, path)
+	os.Exit(1)
 
-	provisionDetailsJson := []byte(fmt.Sprintf(`
-		{
-			"service_id": "%s",
-			"plan_id": "%s",
-			"organization_guid": "test-organization-id",
-			"space_guid": "space-id",
-			"parameters": {}
-		}
-	`, serviceID, planID))
-
-	return b.doRequest("DELETE", path, bytes.NewBuffer(provisionDetailsJson))
+	return b.doRequest(
+		"DELETE",
+		path,
+		bytes.NewBuffer(provisionDetailsJson),
+		[]string{"service_id", serviceID},
+		[]string{"plan_id", planID},
+		[]string{"accepts_incomplete", string(b.AcceptsIncomplete)},
+	)
 }
 
 func (b *BrokerAPIClient) ProvisionInstance(serviceID string, planID string) (responseCode int, operation string, err error) {
@@ -175,11 +189,19 @@ func (b *BrokerAPIClient) DeprovisionInstance(serviceID string, planID string) (
 }
 
 func (b *BrokerAPIClient) DoLastOperationRequest(serviceID string, planID string, operation string) (*http.Response, error) {
-	path := fmt.Sprintf("/v2/service_instances/%s/last_operation?service_id=%s&plan_id=%s", serviceID, serviceID, planID)
+	path := fmt.Sprintf("/v2/service_instances/%s/last_operation", serviceID)
 
 	if operation != "" {
 		path = path + "&operation=" + operation
 	}
+
+	return b.doRequest(
+		"DELETE",
+		path,
+		bytes.NewBuffer(provisionDetailsJson),
+		[]string{"service_id", serviceID},
+		[]string{"plan_id", planID},
+	)
 
 	return b.doRequest("GET", path, nil)
 }
