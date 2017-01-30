@@ -162,4 +162,63 @@ var _ = Describe("RDS Broker", func() {
 		})
 	})
 
+	var _ = Describe("Update", func() {
+		var (
+			updateDetailsJson []byte
+			instanceID        string
+			serviceID         string
+			acceptsIncomplete bool
+		)
+
+		BeforeEach(func() {
+			updateDetailsJson = []byte(`
+				{
+					"service_id": "Service-1",
+					"plan_id": "Plan-1",
+					"parameters": {
+						"apply_immediately": true
+					},
+					"previous_values": {
+						"service_id": "Service-1",
+						"plan_id": "Plan-1",
+						"organization_id": "organization-id",
+						"space_id": "space-id"
+					}
+				}
+			`)
+			instanceID = "myservice"
+			serviceID = "Service-1"
+			acceptsIncomplete = true
+		})
+
+		var doUpdateRequest = func() *httptest.ResponseRecorder {
+			recorder := httptest.NewRecorder()
+
+			path := "/v2/service_instances/" + instanceID
+
+			if acceptsIncomplete {
+				path = path + "?accepts_incomplete=true"
+			}
+
+			req := httptest.NewRequest("PATCH", path, bytes.NewBuffer(updateDetailsJson))
+			req.SetBasicAuth(config.Username, config.Password)
+
+			rdsBrokerServer.ServeHTTP(recorder, req)
+
+			return recorder
+		}
+
+		It("returns the proper response", func() {
+			recorder := doUpdateRequest()
+			Expect(recorder.Code).To(Equal(202))
+		})
+
+		It("applies immediatelly", func() {
+			recorder := doUpdateRequest()
+			Expect(recorder.Code).To(Equal(202))
+			Expect(dbInstance.ModifyApplyImmediately).To(BeTrue())
+		})
+
+	})
+
 })

@@ -14,7 +14,7 @@ type ProvisionParameters struct {
 }
 
 type UpdateParameters struct {
-	ApplyImmediately           bool
+	ApplyImmediately           bool `mapstructure:"apply_immediately"`
 	BackupRetentionPeriod      int64
 	PreferredBackupWindow      string
 	PreferredMaintenanceWindow string
